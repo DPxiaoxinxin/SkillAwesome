@@ -302,3 +302,136 @@ Thread name is:Thread-0
 * AIO 是异步IO的缩写，虽然 NIO 在网络操作中，提供了非阻塞的方法，但是 NIO 的 IO 行为还是同步的。
   * 对于 NIO 来说，我们的业务线程是在 IO 操作准备好时，得到通知，接着就由这个线程自行进行 IO 操作，IO操作本身是同步的
 * 目前来说 AIO 的应用还不是很广泛，Netty 之前也尝试使用过 AIO，不过又放弃了。
+
+
+
+
+
+## 线程
+
+### 线程池
+
+` ExecutorService pool = Executors.newCachedThreadPool();`
+
+#### 特点
+
+* 解决处理器单元内多个线程的执行问题
+* 减少处理器单元闲置时间
+* 增加了处理器单元工作时间内的吞吐能力（为什么这么说？我们减少了多个任务每次线程的创建和销毁浪费，提高了任务执行效率）
+
+#### 组成
+
+* 线程池管理器（ThreadPool）：负责创建、管理、销毁线程池，以及添加任务
+* 工作线程（PoolWorker）：无任务则等待，可循环、重复执行任务
+* 任务接口（Task）：每个任务必须实现接口，工作线程负责调度任务的执行，规定了任务的入口，以及任务完成后的收尾工作以及任务执行状态等等
+* 任务队列（TaskQueue）：存放没有处理的任务，提供任务缓冲机制
+
+#### ExecutorService方法
+
+``` java
+public interface ExecutorService extends Executor {
+
+   
+    void shutdown();//顺次地关闭ExecutorService,停止接收新的任务，等待所有已经提交的任务执行完毕之后，关闭ExecutorService
+
+
+    List shutdownNow();//阻止等待任务启动并试图停止当前正在执行的任务，停止接收新的任务，返回处于等待的任务列表
+
+
+    boolean isShutdown();//判断线程池是否已经关闭
+
+    boolean isTerminated();//如果关闭后所有任务都已完成，则返回 true。注意，除非首先调用 shutdown 或 shutdownNow，否则 isTerminated 永不为 true。
+
+    
+    boolean awaitTermination(long timeout, TimeUnit unit)//等待（阻塞）直到关闭或最长等待时间或发生中断,timeout - 最长等待时间 ,unit - timeout 参数的时间单位  如果此执行程序终止，则返回 true；如果终止前超时期满，则返回 false 
+
+ 
+     Future submit(Callable task);//提交一个返回值的任务用于执行，返回一个表示任务的未决结果的 Future。该 Future 的 get 方法在成功完成时将会返回该任务的结果。
+
+
+     Future submit(Runnable task, T result);//提交一个 Runnable 任务用于执行，并返回一个表示该任务的 Future。该 Future 的 get 方法在成功完成时将会返回给定的结果。
+
+ 
+    Future submit(Runnable task);//提交一个 Runnable 任务用于执行，并返回一个表示该任务的 Future。该 Future 的 get 方法在成功 完成时将会返回 null
+
+
+     List> invokeAll(Collection> tasks)//执行给定的任务，当所有任务完成时，返回保持任务状态和结果的 Future 列表。返回列表的所有元素的 Future.isDone() 为 true。
+        throws InterruptedException;
+
+
+     List> invokeAll(Collection> tasks,
+                                  long timeout, TimeUnit unit)//执行给定的任务，当所有任务完成时，返回保持任务状态和结果的 Future 列表。返回列表的所有元素的 Future.isDone() 为 true。
+        throws InterruptedException;
+
+
+     T invokeAny(Collection> tasks)//执行给定的任务，如果在给定的超时期满前某个任务已成功完成（也就是未抛出异常），则返回其结果。一旦正常或异常返回后，则取消尚未完成的任务。
+        throws InterruptedException, ExecutionException;
+
+
+     T invokeAny(Collection> tasks,
+                    long timeout, TimeUnit unit)
+        throws InterruptedException, ExecutionException, TimeoutException;
+}
+
+public interface Executor {
+
+    void execute(Runnable command);//执行已提交的 Runnable 任务对象。此接口提供一种将任务提交与每个任务将如何运行的机制（包括线程使用的细节、调度等）分离开来的方法
+}
+```
+
+
+
+#### 分类
+
+##### newFixedThreadPool(int)：固定线程池
+
+##### newWorkStealingPool()：处理器核心数的并行线程池
+
+##### newSingleThreadExecutor()：一个线程的单独线程池
+
+##### newCachedThreadPool()：缓存线程池
+
+##### newSingleThreadScheduledExecutor() ：单独线程定时线程池
+
+##### newScheduledThreadPool(int)：定时线程池
+
+#### 实现类ThreadPoolExecutor
+
+##### 核心参数
+
+- `corePoolSize`为线程池的基本大小。
+  - 默认情况下，即使是核心线程（core threads）也只有在新的任务到达时，才会开始创建和启动。但是，可以重置`prestartCoreThread()`和`prestartAllCoreThreads()`来动态改变。
+- `maximumPoolSize`为线程池最大线程大小。
+- `keepAliveTime`和 `unit`则是线程空闲后的存活时间。
+  - 如果当前线程池中的线程数量超过`corePoolSize`，如果多余的线程已经处于空闲状态（idle）的时间大于`keepAliveTime`，那么这些多余的线程将被终止。当线程池不活跃时，这个策略可以降低资源消耗。可以使用`setKeepAliveTime(long, TimeUnit)`来动态的设置`keepAliveTime`。
+  - 默认情况下，当且仅当线程池中的线程数量超过`corePoolSize`时，keep-alive策略才会生效，但是可以使用`allowCoreThreadTimeOut(boolean)`使得没有超过`corePoolSize`的线程在超过`keepAliveTime`时也会生效。
+- `workQueue`用于存放任务的阻塞队列。
+  - 入队策略
+    - Direct handoffs：`SynchronousQueue`是handoff的默认的一个好例子，此队列传递任务而不是持有他们。当处理一些内部有依赖关系的任务时，此策略能够避免加锁。Direct handoffs通常需要无界的`maximumPoolSize`来避免发生拒绝提交任务请求的情况。如果任务处理速度小于任务提交的速度，那么可能会导致线程无界增长，引发资源问题。
+    - Unbounded queues：当`corePoolSize`中的线程都忙（busy）时，使用无界队列（例如`LinkedBlockingQueue`）将导致新的任务入队等待。因此，创建线程的数量不可能大于`corePoolSize`，并且`maximumPoolSize`也不起任何作用。这种策略适用于各个提交的任务之间不会相互影响的场景，例如web page server。
+    - Bounded queues：通过设置有限的maximumPoolSize，有界队列可以避免资源耗尽，但是在调优上有一定困难。队列大小和线程池最大值在以下两种场景中需要权衡利弊：
+      1. 大队列小线程池，能够降低CPU使用率、系统资源和上下文切换开销，但是也会导致吞吐量严重降低。
+      2. 小队列大线程池，能够提高CPU使用率，但是会导致不可接受的调度开销，因此也会降低吞吐量。
+- `handler`当队列和最大线程池都满了之后的饱和策略。当`ThreadPoolExecutor`关闭、队列和线程池饱和时，会拒绝新提交的任务，同时调用`RejectedExecutionHandler.rejectedExecution(Runnable, ThreadPoolExecutor)`方法。
+  - ThreadPoolExecutor.AbortPolicy，默认策略，在拒绝任务时，会抛出`RejectedExecutionException`。
+  - `ThreadPoolExecutor.CallerRunsPolicy`，由提交的线程自己来执行（execute）当前提交的任务。这种策略提供了简单的反馈控制机制，能够降低新的任务提交的速率。
+  - `ThreadPoolExecutor.DiscardPolicy`，简单粗暴的抛弃不能执行的任务。
+  - `ThreadPoolExecutor.DiscardOldestPolicy`，如果`ThreadPoolExecutor`没有被关闭，那么删除队列头部的任务，并且再次尝试提交任务，如果仍然被拒绝，那么再删除队列头部任务，如此反复。
+- `ThreadFactory` 创建线程的线程工厂
+  - 如果没有特别指定，那么默认使用`Executors.defaultThreadFactory()`来创建线程，这些创建的线程属于同一个`ThreadGroup`、有同样的`NORM_PRIORITY`优先级和非守护线程状态（non-demon status）。通过使用不同的`ThreadFactory`，可以指定thread name、thread group、priority。
+
+##### 线程池大小调整策略
+
+1. 当用`execute`提交任务时，如果运行的线程数量少于`corePoolSize`，即使当前有线程处于空闲状态（idle），那么仍然会创建一个新的线程来处理提交的任务。
+2. 如果线程的数量大于`corePoolSize`并且小于`maximumPoolSize`，当且仅当队列满了的时候，才会创建一个新的线程来处理提交的任务。
+3. 如果线程的数量大于`maximumPoolSize`，那么就会执行相应的拒绝策略。
+
+
+
+ 
+
+ 
+
+ 
+
+ 
